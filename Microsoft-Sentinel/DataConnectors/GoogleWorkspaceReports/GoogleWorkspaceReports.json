@@ -1,0 +1,412 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.4.1124.51302",
+      "templateHash": "1657419360319444220"
+    }
+  },
+  "parameters": {
+    "FunctionName": {
+      "type": "string",
+      "defaultValue": "GWorkspace",
+      "maxLength": 11,
+      "minLength": 1
+    },
+    "WorkspaceID": {
+      "type": "string",
+      "defaultValue": "<workspaceID>"
+    },
+    "WorkspaceKey": {
+      "type": "secureString"
+    },
+    "GooglePickleString": {
+      "type": "secureString"
+    },
+    "AuditLogTypes": {
+      "type": "string",
+      "defaultValue": "access_transparency,admin,calendar,chat,drive,gcp,gplus,groups,groups_enterprise,jamboard,login,meet,mobile,rules,saml,token,user_accounts,context_aware_access,chrome,data_studio",
+      "metadata": {
+        "description": "Google Audit Logs to collect (comma separated)"
+      }
+    },
+    "keyVaultGroup": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "(Optional) PrincipalID of the user or group allowed to manage/update the KeyVault"
+      }
+    },
+    "functionPackage": {
+      "type": "string",
+      "defaultValue": "https://github.com/esecnyoung/azure-templates/blob/main/Microsoft-Sentinel/DataConnectors/GoogleWorkspaceReports/GoogleWorkspaceReports.zip?raw=true",
+      "metadata": {
+        "description": "Function package URL"
+      }
+    }
+  },
+  "variables": {
+    "FunctionName_var": "[format('{0}{1}', toLower(parameters('FunctionName')), uniqueString(resourceGroup().id))]",
+    "StorageSuffix": "[environment().suffixes.storage]",
+    "LogAnaltyicsUri": "[replace(environment().portal, 'https://portal', format('https://{0}.ods.opinsights', toLower(parameters('WorkspaceID'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2015-05-01",
+      "name": "[variables('FunctionName_var')]",
+      "location": "[resourceGroup().location]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web"
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2019-09-01",
+      "name": "[variables('FunctionName_var')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "enabledForDeployment": false,
+        "enabledForDiskEncryption": false,
+        "enabledForTemplateDeployment": true,
+        "enableSoftDelete": true,
+        "accessPolicies": []
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2016-10-01",
+      "name": "[format('{0}/{1}', variables('FunctionName_var'), 'googlePickleString')]",
+      "properties": {
+        "value": "[parameters('GooglePickleString')]",
+        "contentType": "string",
+        "attributes": {
+          "enabled": true
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('FunctionName_var'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2016-10-01",
+      "name": "[format('{0}/{1}', variables('FunctionName_var'), 'workspaceKey')]",
+      "properties": {
+        "value": "[parameters('WorkspaceKey')]",
+        "contentType": "string",
+        "attributes": {
+          "enabled": true
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('FunctionName_var'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2019-06-01",
+      "name": "[toLower(variables('FunctionName_var'))]",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [],
+          "ipRules": [],
+          "defaultAction": "Allow"
+        },
+        "supportsHttpsTrafficOnly": true,
+        "encryption": {
+          "services": {
+            "file": {
+              "keyType": "Account",
+              "enabled": true
+            },
+            "blob": {
+              "keyType": "Account",
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2019-06-01",
+      "name": "[format('{0}/{1}', toLower(variables('FunctionName_var')), 'default')]",
+      "properties": {
+        "cors": {
+          "corsRules": []
+        },
+        "deleteRetentionPolicy": {
+          "enabled": false
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices",
+      "apiVersion": "2019-06-01",
+      "name": "[format('{0}/{1}', toLower(variables('FunctionName_var')), 'default')]",
+      "properties": {
+        "cors": {
+          "corsRules": []
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2018-11-01",
+      "name": "[variables('FunctionName_var')]",
+      "location": "[resourceGroup().location]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "httpsOnly": true,
+        "clientAffinityEnabled": true,
+        "reserved": true,
+        "siteConfig": {
+          "linuxFxVersion": "python|3.8"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('FunctionName_var'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2018-11-01",
+      "name": "[format('{0}/{1}', variables('FunctionName_var'), 'appsettings')]",
+      "properties": {
+        "FUNCTIONS_EXTENSION_VERSION": "~3",
+        "FUNCTIONS_WORKER_RUNTIME": "python",
+        "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(resourceId('Microsoft.Insights/components', variables('FunctionName_var')), '2015-05-01').InstrumentationKey]",
+        "APPLICATIONINSIGHTS_CONNECTION_STRING": "[reference(resourceId('Microsoft.Insights/components', variables('FunctionName_var')), '2015-05-01').ConnectionString]",
+        "AzureWebJobsStorage": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', toLower(variables('FunctionName_var')), listKeys(resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var'))), '2019-06-01').keys[0].value, toLower(variables('StorageSuffix')))]",
+        "WorkspaceID": "[parameters('WorkspaceID')]",
+        "WorkspaceKey": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('FunctionName_var'), 'workspaceKey')).secretUri)]",
+        "GooglePickleString": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('FunctionName_var'), 'googlePickleString')).secretUri)]",
+        "logAnalyticsUri": "[variables('LogAnaltyicsUri')]",
+        "auditLogTypes": "[parameters('AuditLogTypes')]",
+        "WEBSITE_RUN_FROM_PACKAGE": "[parameters('functionPackage')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('FunctionName_var'))]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('FunctionName_var'), 'googlePickleString')]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('FunctionName_var'), 'workspaceKey')]",
+        "[resourceId('Microsoft.Web/sites', variables('FunctionName_var'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2019-06-01",
+      "name": "[format('{0}/{1}/{2}', toLower(variables('FunctionName_var')), 'default', 'azure-webjobs-hosts')]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', toLower(variables('FunctionName_var')), 'default')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2019-06-01",
+      "name": "[format('{0}/{1}/{2}', toLower(variables('FunctionName_var')), 'default', 'azure-webjobs-secrets')]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', toLower(variables('FunctionName_var')), 'default')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2019-06-01",
+      "name": "[format('{0}/{1}/{2}', toLower(variables('FunctionName_var')), 'default', toLower(variables('FunctionName_var')))]",
+      "properties": {
+        "shareQuota": 5120
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', toLower(variables('FunctionName_var')), 'default')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(variables('FunctionName_var')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-10-01",
+      "name": "KeyVaultPolicy_Function",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "keyVaultName": {
+            "value": "[variables('FunctionName_var')]"
+          },
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.Web/sites', variables('FunctionName_var')), '2018-11-01', 'full').identity.principalId]"
+          },
+          "permissions": {
+            "value": {
+              "secrets": [
+                "get",
+                "list"
+              ]
+            }
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.4.1124.51302",
+              "templateHash": "7123101912397224563"
+            }
+          },
+          "parameters": {
+            "keyVaultName": {
+              "type": "string"
+            },
+            "principalId": {
+              "type": "string"
+            },
+            "permissions": {
+              "type": "object",
+              "defaultValue": {
+                "secrets": [
+                  "get",
+                  "list"
+                ]
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2019-09-01",
+              "name": "[format('{0}/{1}', parameters('keyVaultName'), 'add')]",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantId]",
+                    "objectId": "[parameters('principalId')]",
+                    "permissions": "[parameters('permissions')]"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('FunctionName_var'))]",
+        "[resourceId('Microsoft.Web/sites', variables('FunctionName_var'))]"
+      ]
+    },
+    {
+      "condition": "[and(not(equals(parameters('keyVaultGroup'), null())), not(equals(parameters('keyVaultGroup'), '')))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-10-01",
+      "name": "KeyVaultPolicy_Principal",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "keyVaultName": {
+            "value": "[variables('FunctionName_var')]"
+          },
+          "principalId": {
+            "value": "[parameters('keyVaultGroup')]"
+          },
+          "permissions": {
+            "value": {
+              "secrets": [
+                "backup",
+                "list",
+                "recover",
+                "restore",
+                "set"
+              ]
+            }
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.4.1124.51302",
+              "templateHash": "7123101912397224563"
+            }
+          },
+          "parameters": {
+            "keyVaultName": {
+              "type": "string"
+            },
+            "principalId": {
+              "type": "string"
+            },
+            "permissions": {
+              "type": "object",
+              "defaultValue": {
+                "secrets": [
+                  "get",
+                  "list"
+                ]
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2019-09-01",
+              "name": "[format('{0}/{1}', parameters('keyVaultName'), 'add')]",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantId]",
+                    "objectId": "[parameters('principalId')]",
+                    "permissions": "[parameters('permissions')]"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('FunctionName_var'))]"
+      ]
+    }
+  ]
+}
